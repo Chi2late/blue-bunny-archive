@@ -2,6 +2,7 @@ export type PlaceType = 'sight' | 'food' | 'transport' | 'stay' | 'shop' | 'phot
 
 export interface Trip {
   id: string
+  cityId: string
   city: string
   title: string
   startDate: string
@@ -20,6 +21,7 @@ export interface TripDay {
 
 export interface Place {
   id: string
+  cityId: string
   city: string
   name: string
   type: PlaceType
@@ -38,12 +40,34 @@ export interface ItineraryItem {
   order: number
 }
 
+export interface City {
+  id: string
+  name: string
+  normalizedName: string
+  englishName?: string
+  province?: string
+  adcode?: number
+}
+
+export interface CheckIn {
+  id: string
+  itineraryItemId?: string
+  tripId: string
+  dayId: string
+  placeId: string
+  cityId: string
+  checkedAt: string
+  note: string
+}
+
 export interface TravelData {
-  version: 1
+  version: 2
   trips: Trip[]
   days: TripDay[]
   places: Place[]
   items: ItineraryItem[]
+  cities: City[]
+  checkIns: CheckIn[]
 }
 
 export interface ItemInput {

@@ -1,4 +1,5 @@
-import type { ItemInput, ItineraryItem, Place, TravelData, Trip, TripDay } from '../models/travel'
+import { createCity } from '../data/cities'
+import type { CheckIn, City, ItemInput, ItineraryItem, Place, TravelData, Trip, TripDay } from '../models/travel'
 import { addDays, toISO } from '../utils/date'
 
 export interface TravelRepository {
@@ -9,9 +10,19 @@ export interface TravelRepository {
   upsertItem(input: ItemInput): ItineraryItem
   deleteItem(itemId: string): void
   reorderItems(dayId: string, ids: string[]): void
+  checkIn(itemId: string): CheckIn
+  updateCheckInNote(checkInId: string, note: string): void
 }
 
 const storageKey = 'blue-bunny-archive-v1'
+
+interface TravelDataV1 {
+  version: 1
+  trips: Omit<Trip, 'cityId'>[]
+  days: TripDay[]
+  places: Omit<Place, 'cityId'>[]
+  items: ItineraryItem[]
+}
 
 function seedData(): TravelData {
   const today = toISO(new Date())
@@ -20,15 +31,16 @@ function seedData(): TravelData {
   const tripId = 'demo-qingdao'
   const day1 = 'demo-day-1'
   const day2 = 'demo-day-2'
+  const city = createCity('青岛')
   const places: Place[] = [
-    { id: 'demo-zhanqiao', city: '青岛', name: '栈桥', type: 'sight', latitude: 36.0583, longitude: 120.3175 },
-    { id: 'demo-daxuelu', city: '青岛', name: '大学路', type: 'photo', latitude: 36.0658, longitude: 120.3311 },
-    { id: 'demo-badaguan', city: '青岛', name: '八大关', type: 'sight', latitude: 36.0516, longitude: 120.3522 },
-    { id: 'demo-xiaomaidao', city: '青岛', name: '小麦岛', type: 'photo', latitude: 36.0477, longitude: 120.4311 },
+    { id: 'demo-zhanqiao', cityId: city.id, city: '青岛', name: '栈桥', type: 'sight', latitude: 36.0583, longitude: 120.3175 },
+    { id: 'demo-daxuelu', cityId: city.id, city: '青岛', name: '大学路', type: 'photo', latitude: 36.0658, longitude: 120.3311 },
+    { id: 'demo-badaguan', cityId: city.id, city: '青岛', name: '八大关', type: 'sight', latitude: 36.0516, longitude: 120.3522 },
+    { id: 'demo-xiaomaidao', cityId: city.id, city: '青岛', name: '小麦岛', type: 'photo', latitude: 36.0477, longitude: 120.4311 },
   ]
   return {
-    version: 1,
-    trips: [{ id: tripId, city: '青岛', title: '青岛五日游', startDate: start, endDate: addDays(start, 4), companions: ['我'], coverUrl: './qingdao-pier.jpg', createdAt: new Date().toISOString() }],
+    version: 2,
+    trips: [{ id: tripId, cityId: city.id, city: '青岛', title: '青岛五日游', startDate: start, endDate: addDays(start, 4), companions: ['我'], coverUrl: './qingdao-pier.jpg', createdAt: new Date().toISOString() }],
     days: [{ id: day1, tripId, date: start, order: 0 }, { id: day2, tripId, date: second, order: 1 }],
     places,
     items: [
@@ -37,15 +49,36 @@ function seedData(): TravelData {
       { id: 'demo-item-3', dayId: day2, placeId: 'demo-badaguan', time: '10:00', durationMinutes: 120, note: '', order: 0 },
       { id: 'demo-item-4', dayId: day2, placeId: 'demo-xiaomaidao', time: '15:30', durationMinutes: 120, note: '等日落', order: 1 },
     ],
+    cities: [city],
+    checkIns: [],
   }
+}
+
+function migrateV1(data: TravelDataV1): TravelData {
+  const cities: City[] = []
+  const cityFor = (name: string) => {
+    const candidate = createCity(name)
+    const existing = cities.find(city => city.id === candidate.id)
+    if (existing) return existing
+    cities.push(candidate)
+    return candidate
+  }
+  const trips: Trip[] = data.trips.map(trip => ({ ...trip, cityId: cityFor(trip.city).id }))
+  const places: Place[] = data.places.map(place => ({ ...place, cityId: cityFor(place.city).id }))
+  return { version: 2, trips, days: data.days, places, items: data.items, cities, checkIns: [] }
 }
 
 function readData(): TravelData {
   try {
     const raw = window.localStorage.getItem(storageKey)
     if (raw) {
-      const parsed = JSON.parse(raw) as TravelData
-      if (parsed.version === 1 && Array.isArray(parsed.trips) && Array.isArray(parsed.days) && Array.isArray(parsed.places) && Array.isArray(parsed.items)) return parsed
+      const parsed = JSON.parse(raw) as TravelData | TravelDataV1
+      if (parsed.version === 2 && Array.isArray(parsed.trips) && Array.isArray(parsed.days) && Array.isArray(parsed.places) && Array.isArray(parsed.items) && Array.isArray(parsed.cities) && Array.isArray(parsed.checkIns)) return parsed
+      if (parsed.version === 1 && Array.isArray(parsed.trips) && Array.isArray(parsed.days) && Array.isArray(parsed.places) && Array.isArray(parsed.items)) {
+        const migrated = migrateV1(parsed)
+        window.localStorage.setItem(storageKey, JSON.stringify(migrated))
+        return migrated
+      }
     }
   } catch {
     // Corrupt or unavailable storage falls back to the sample itinerary.
@@ -68,8 +101,10 @@ class LocalTravelRepository implements TravelRepository {
     this.listeners.forEach(listener => listener())
   }
   createTrip(input: Pick<Trip, 'city' | 'title' | 'startDate' | 'endDate' | 'companions' | 'coverUrl'>) {
-    const trip: Trip = { ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
-    this.commit({ ...this.data, trips: [trip, ...this.data.trips] })
+    const candidate = createCity(input.city)
+    const city = this.data.cities.find(entry => entry.id === candidate.id) ?? candidate
+    const trip: Trip = { ...input, cityId: city.id, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
+    this.commit({ ...this.data, trips: [trip, ...this.data.trips], cities: this.data.cities.some(entry => entry.id === city.id) ? this.data.cities : [...this.data.cities, city] })
     return trip
   }
   addDay(tripId: string, date: string) {
@@ -86,7 +121,7 @@ class LocalTravelRepository implements TravelRepository {
     if (!day || !trip) throw new Error('找不到所属旅程')
     const normalizedName = input.name.trim().toLocaleLowerCase()
     const existingPlace = this.data.places.find(place => place.city === trip.city && place.name.trim().toLocaleLowerCase() === normalizedName)
-    const place: Place = existingPlace ?? { id: crypto.randomUUID(), city: trip.city, name: input.name.trim(), type: input.type, latitude: input.latitude, longitude: input.longitude }
+    const place: Place = existingPlace ?? { id: crypto.randomUUID(), cityId: trip.cityId, city: trip.city, name: input.name.trim(), type: input.type, latitude: input.latitude, longitude: input.longitude }
     const places = existingPlace
       ? this.data.places.map(entry => entry.id === place.id ? { ...entry, type: input.type, latitude: input.latitude ?? entry.latitude, longitude: input.longitude ?? entry.longitude } : entry)
       : [...this.data.places, place]
@@ -107,6 +142,24 @@ class LocalTravelRepository implements TravelRepository {
   reorderItems(dayId: string, ids: string[]) {
     const order = new Map(ids.map((id, index) => [id, index]))
     this.commit({ ...this.data, items: this.data.items.map(item => item.dayId === dayId && order.has(item.id) ? { ...item, order: order.get(item.id)! } : item) })
+  }
+  checkIn(itemId: string) {
+    const existing = this.data.checkIns.find(entry => entry.itineraryItemId === itemId)
+    if (existing) return existing
+    const item = this.data.items.find(entry => entry.id === itemId)
+    const day = this.data.days.find(entry => entry.id === item?.dayId)
+    const trip = this.data.trips.find(entry => entry.id === day?.tripId)
+    const place = this.data.places.find(entry => entry.id === item?.placeId)
+    if (!item || !day || !trip || !place) throw new Error('找不到要打卡的地点')
+    const checkIn: CheckIn = {
+      id: crypto.randomUUID(), itineraryItemId: item.id, tripId: trip.id, dayId: day.id,
+      placeId: place.id, cityId: place.cityId, checkedAt: new Date().toISOString(), note: '',
+    }
+    this.commit({ ...this.data, checkIns: [...this.data.checkIns, checkIn] })
+    return checkIn
+  }
+  updateCheckInNote(checkInId: string, note: string) {
+    this.commit({ ...this.data, checkIns: this.data.checkIns.map(entry => entry.id === checkInId ? { ...entry, note: note.trim() } : entry) })
   }
 }
 

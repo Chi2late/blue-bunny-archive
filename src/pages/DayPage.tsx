@@ -24,7 +24,7 @@ export function DayPage() {
     <div className="day-heading"><h1>Day {dayNumber}<br /><em>{displayEnglishDate(day.date)}</em></h1><Link className="round-link" to={`/trips/${trip.id}/route/${day.id}`} aria-label="查看路线"><ArrowRight size={22} /></Link></div>
     <div className="day-tabs" role="navigation" aria-label="切换日期">{days.map((entry, index) => <Link className={entry.id === day.id ? 'active' : ''} key={entry.id} to={`/trips/${trip.id}/day/${entry.id}`}><strong>Day {index + 1}</strong><small>{displayEnglishDate(entry.date)}</small></Link>)}</div>
     <div className="section-line"><span>当天路线</span><span>{String(items.length).padStart(2, '0')} PLACES</span></div>
-    {items.length > 0 ? <><p className="drag-tip">长按右侧手柄可调整顺序</p><ItineraryList dayId={day.id} items={items} places={data.places} onEdit={id => { setEditingId(id); setSheetOpen(true) }} /></> : <div className="empty-days"><strong>这一天还空着。</strong><p>先加一个想去的地方。</p></div>}
+    {items.length > 0 ? <><p className="drag-tip">长按右侧手柄可调整顺序</p><ItineraryList dayId={day.id} items={items} places={data.places} checkIns={data.checkIns} onEdit={id => { setEditingId(id); setSheetOpen(true) }} /></> : <div className="empty-days"><strong>这一天还空着。</strong><p>先加一个想去的地方。</p></div>}
     {items.length > 12 && <p className="easter-note">真的全都要去吗？</p>}
     <button className="add-day-button" type="button" onClick={() => { setEditingId(null); setSheetOpen(true) }}><Plus size={18} /> 添加地点</button>
     <Link className="route-cta" to={`/trips/${trip.id}/route/${day.id}`}>查看当天路线 <ArrowRight size={18} /></Link>

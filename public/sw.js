@@ -1,4 +1,4 @@
-const CACHE = 'blue-bunny-archive-v2'
+const CACHE = 'blue-bunny-archive-v3'
 const BASE = self.registration.scope
 
 const CORE = [
